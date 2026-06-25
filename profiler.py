@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 import os
+import threading
 from datetime import datetime
 
 import openpyxl
@@ -59,7 +60,6 @@ def save_to_excel(row_data: list):
 
 
 def monitor_process(proc, sample_rate, run_label, program_name, program_args):
-    start_time = time.time()
     p = psutil.Process(proc.pid)
 
     cpu_use_list = []
@@ -68,21 +68,40 @@ def monitor_process(proc, sample_rate, run_label, program_name, program_args):
     read_bytes_list = []
     write_bytes_list = []
 
-    while proc.poll() is None:
-        cpu = p.cpu_percent() / os.cpu_count()
-        cpu_use_list.append(cpu)
+    # First cpu_percent() call always returns 0.0 — warm it up and discard
+    p.cpu_percent()
 
-        mem = p.memory_info().rss
-        mem_use_list.append(mem)
+    stop_event = threading.Event()
 
-        thread_count_list.append(p.num_threads())
+    def collect():
+        while not stop_event.is_set():
+            try:
+                with p.oneshot():
+                    cpu = p.cpu_percent() / os.cpu_count()
+                    mem = p.memory_info().rss
+                    threads = p.num_threads()
+                    io = p.io_counters()
+                cpu_use_list.append(cpu)
+                mem_use_list.append(mem)
+                thread_count_list.append(threads)
+                read_bytes_list.append(io.read_bytes)
+                write_bytes_list.append(io.write_bytes)
+            except psutil.NoSuchProcess:
+                break
+            # stop_event.wait respects the event immediately when set,
+            # avoiding a full extra sleep at the end
+            stop_event.wait(sample_rate)
 
-        io_counters = p.io_counters()
-        read_bytes_list.append(io_counters.read_bytes)
-        write_bytes_list.append(io_counters.write_bytes)
+    start_time = time.perf_counter()
+    monitor_thread = threading.Thread(target=collect, daemon=True)
+    monitor_thread.start()
 
-        time.sleep(sample_rate)
-    end_time = time.time()
+    proc.wait()  # OS-notified — no polling, precise termination detection
+    end_time = time.perf_counter()
+
+    stop_event.set()
+    monitor_thread.join()
+
     execution_time = end_time - start_time
     print("\n\n")
 
