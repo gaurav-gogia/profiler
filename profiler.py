@@ -151,6 +151,7 @@ def monitor_process(proc, sample_rate, run_label, program_name, program_args):
     print(
         f"Peak IO Write: {convert_bytes(peak_io_write)} | Avg IO Write: {convert_bytes(avg_io_write)}"
     )
+    print(f"Run Count: {run_label}")
 
     row = [
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
