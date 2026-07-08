@@ -59,6 +59,30 @@ def save_to_excel(row_data: list):
     print(f"Results saved to {os.path.abspath(EXCEL_FILE)}")
 
 
+def get_next_run_label() -> int:
+    if not os.path.exists(EXCEL_FILE):
+        return 1
+
+    try:
+        wb = openpyxl.load_workbook(EXCEL_FILE, data_only=True)
+        ws = wb.active
+    except Exception:
+        return 1
+
+    if ws is None:
+        return 1
+
+    # If only headers exist (or sheet is empty), start at 1.
+    if ws.max_row <= 1:
+        return 1
+
+    previous_value = ws.cell(row=ws.max_row, column=2).value
+    try:
+        return int(float(str(previous_value).strip())) + 1
+    except (TypeError, ValueError):
+        return 1
+
+
 def monitor_process(proc, sample_rate, run_label, program_name, program_args):
     p = psutil.Process(proc.pid)
 
@@ -152,18 +176,17 @@ def monitor_process(proc, sample_rate, run_label, program_name, program_args):
 
 
 def main():
-    if len(sys.argv) < 4:
-        print("Usage: profiler.py <sample_rate> <run_label> <program> [program_args...]")
+    if len(sys.argv) < 3:
+        print("Usage: profiler.py <sample_rate> <program> [program_args...]")
         print("  sample_rate  Sampling interval in seconds (e.g. 0.1)")
-        print("  run_label    Label/number identifying this run (e.g. 1, 'run1')")
         print("  program      Program to profile")
         print("  program_args Optional arguments passed to the program")
         sys.exit(1)
 
     sample_rate = float(sys.argv[1])
-    run_label = sys.argv[2]
-    program_name = sys.argv[3]
-    program_args = sys.argv[4:]
+    run_label = get_next_run_label()
+    program_name = sys.argv[2]
+    program_args = sys.argv[3:]
 
     proc = subprocess.Popen([program_name] + program_args)
     monitor_process(proc, sample_rate, run_label, program_name, program_args)
